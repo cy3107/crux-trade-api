@@ -1,0 +1,22 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { SupabaseService } from './common/supabase/supabase.service';
+import { MarketsModule } from './markets/markets.module';
+import { UnlockModule } from './unlock/unlock.module';
+import { TicketsModule } from './tickets/tickets.module';
+import { ArenaController } from './arena/arena.controller';
+import { StrategiesModule } from './strategies/strategies.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    MarketsModule,
+    UnlockModule,
+    TicketsModule,
+    StrategiesModule,
+  ],
+  providers: [SupabaseService],
+  exports: [SupabaseService],
+  controllers: [ArenaController],
+})
+export class AppModule {}
