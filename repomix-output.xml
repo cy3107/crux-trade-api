@@ -1,0 +1,1271 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: node_modules, dist, .git
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+src/
+  arena/
+    arena.controller.ts
+  common/
+    supabase/
+      supabase.service.ts
+  markets/
+    markets.controller.ts
+    markets.module.ts
+    markets.service.ts
+  strategies/
+    strategies.controller.ts
+    strategies.module.ts
+    strategies.service.ts
+  tickets/
+    tickets.controller.ts
+    tickets.module.ts
+    tickets.service.ts
+  unlock/
+    unlock.controller.ts
+    unlock.module.ts
+    unlock.service.ts
+  app.controller.spec.ts
+  app.controller.ts
+  app.module.ts
+  app.service.ts
+  main.ts
+test/
+  app.e2e-spec.ts
+  jest-e2e.json
+.gitignore
+.prettierrc
+eslint.config.mjs
+nest-cli.json
+package.json
+README.md
+tsconfig.build.json
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/arena/arena.controller.ts">
+import { Controller, Get, Post } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('arena')
+@Controller('arena')
+export class ArenaController {
+  private mockBattle = {
+    status: 'in_progress',
+    time_remaining: '02:34:12',
+    win_rate_pct: 68,
+    total_battles: 24,
+    rank: 142,
+  };
+
+  @Get('me')
+  @ApiOperation({ summary: '获取用户 Arena 对战状态' })
+  getMyArena() {
+    return { success: true, data: this.mockBattle };
+  }
+
+  @Post('enter')
+  @ApiOperation({ summary: '进入 Arena 对战' })
+  enterArena() {
+    return { success: true, message: 'Entered arena with armed tickets' };
+  }
+}
+</file>
+
+<file path="src/common/supabase/supabase.service.ts">
+import { Injectable } from '@nestjs/common';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { ConfigService } from '@nestjs/config';
+
+type AnyTableSchema = {
+  Row: Record<string, any>;
+  Insert: Record<string, any>;
+  Update: Record<string, any>;
+  Relationships?: never;
+};
+
+type SupabaseDatabase = {
+  public: {
+    Tables: Record<string, AnyTableSchema>;
+    Views: Record<string, AnyTableSchema>;
+    Functions: Record<string, any>;
+    Enums: Record<string, any>;
+    CompositeTypes: Record<string, any>;
+  };
+};
+
+type GenericClient = SupabaseClient<SupabaseDatabase, 'public', any>;
+
+@Injectable()
+export class SupabaseService {
+  private supabase: GenericClient;
+
+  constructor(private configService: ConfigService) {
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+    const serviceRoleKey = this.configService.get<string>(
+      'SUPABASE_SERVICE_ROLE_KEY',
+    );
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error(
+        'Supabase configuration missing: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY',
+      );
+    }
+
+    this.supabase = createClient<SupabaseDatabase, 'public'>(
+      supabaseUrl,
+      serviceRoleKey, // 后端用高权限 key
+    );
+  }
+
+  getClient(): GenericClient {
+    return this.supabase;
+  }
+}
+</file>
+
+<file path="src/markets/markets.controller.ts">
+import { Controller, Get, Param } from '@nestjs/common';
+import { MarketsService } from './markets.service';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+
+@ApiTags('markets')
+@Controller('markets')
+export class MarketsController {
+  constructor(private readonly marketsService: MarketsService) {}
+
+  @Get()
+  @ApiOperation({ summary: '获取所有预测市场（首页列表）' })
+  async getMarkets() {
+    return {
+      success: true,
+      data: await this.marketsService.getAllMarkets(),
+    };
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: '获取单个市场详情 + 完整 AI Insight' })
+  async getMarketDetail(@Param('id') id: string) {
+    const market = await this.marketsService.getMarketById(id);
+    const changePct = Number(market?.change_24h_pct ?? 0);
+
+    const aiInsight = {
+      signal: changePct > 0 ? 'bullish' : 'bearish',
+      confidence_pct: 72,
+      volatility_level: 'medium',
+      description: 'Medium volatility detected',
+      insights: [
+        'Social buzz ↑ 35%',
+        'On-chain volume ↑ 20%',
+        'Holder count rising',
+        'Whale accumulation detected',
+      ],
+    };
+
+    return {
+      success: true,
+      data: {
+        ...market,
+        ai_insight: aiInsight,
+      },
+    };
+  }
+}
+</file>
+
+<file path="src/markets/markets.module.ts">
+import { Module } from '@nestjs/common';
+import { MarketsController } from './markets.controller';
+import { MarketsService } from './markets.service';
+import { SupabaseService } from '../common/supabase/supabase.service';
+
+@Module({
+  controllers: [MarketsController],
+  providers: [MarketsService, SupabaseService],
+})
+export class MarketsModule {}
+</file>
+
+<file path="src/markets/markets.service.ts">
+import { Injectable } from '@nestjs/common';
+import { SupabaseService } from '../common/supabase/supabase.service';
+
+@Injectable()
+export class MarketsService {
+  constructor(private supabaseService: SupabaseService) {}
+
+  async getAllMarkets() {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('markets')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Supabase error:', error);
+      // 黑客松备用：返回硬编码 mock 数据，永不崩溃
+      return this.getMockMarkets();
+    }
+
+    return data?.length ? data : this.getMockMarkets();
+  }
+
+  // 保险起见：数据库挂了也能演示
+  private getMockMarkets() {
+    return [
+      {
+        id: '1',
+        token_symbol: 'BTC',
+        token_name: 'Bitcoin',
+        current_price: 45234.5,
+        change_24h_pct: 5.2,
+        volatility: 45,
+        unlock_progress_pct: 45,
+        is_hot: true,
+        ending_soon: false,
+      },
+      {
+        id: '2',
+        token_symbol: 'ETH',
+        token_name: 'Ethereum',
+        current_price: 2845.12,
+        change_24h_pct: -2.3,
+        volatility: 67,
+        unlock_progress_pct: 67,
+        is_hot: false,
+        ending_soon: true,
+      },
+      {
+        id: '3',
+        token_symbol: 'DOGE',
+        token_name: 'Dogecoin',
+        current_price: 0.1245,
+        change_24h_pct: 1.8,
+        volatility: 82,
+        unlock_progress_pct: 82,
+        is_hot: true,
+        ending_soon: false,
+      },
+    ];
+  }
+
+  async getMarketById(id: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('markets')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !data) {
+      const fallback =
+        this.getMockMarkets().find((market) => market.id === id) ??
+        this.getMockMarkets()[0];
+      return fallback;
+    }
+
+    return data;
+  }
+}
+</file>
+
+<file path="src/strategies/strategies.controller.ts">
+import { Controller, Post, Body, Get } from '@nestjs/common';
+import { StrategiesService } from './strategies.service';
+import { ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
+
+class GenerateStrategyDto {
+  prompt: string; // 用户输入，如 "我想做多PEPE，控制风险"
+  name?: string; // 可选策略名称
+}
+
+class SaveStrategyDto {
+  strategy: Record<string, any>;
+  name?: string;
+}
+
+@ApiTags('strategies')
+@Controller('strategies')
+export class StrategiesController {
+  constructor(private readonly strategiesService: StrategiesService) {}
+
+  @Post('generate')
+  @ApiOperation({ summary: 'AI 生成交易策略（带可视化 Workflow）' })
+  @ApiBody({ type: GenerateStrategyDto })
+  async generate(@Body() body: GenerateStrategyDto) {
+    const strategy = await this.strategiesService.generateStrategy(
+      body.prompt || 'Create a trending meme strategy',
+      body.name,
+    );
+
+    return {
+      success: true,
+      data: {
+        strategy,
+        ai_source: 'mock (demo mode)', // 真实上线改成 'groq'
+        generated_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Get('me')
+  @ApiOperation({ summary: '获取当前用户保存的策略列表' })
+  async getMyStrategies() {
+    return {
+      success: true,
+      data: await this.strategiesService.getSavedStrategies('demo-user'),
+    };
+  }
+
+  @Post('save')
+  @ApiOperation({ summary: '保存 AI 生成的策略（可选）' })
+  async saveStrategy(@Body() body: SaveStrategyDto) {
+    return {
+      success: true,
+      data: await this.strategiesService.saveStrategy('demo-user', body),
+    };
+  }
+}
+</file>
+
+<file path="src/strategies/strategies.module.ts">
+import { Module } from '@nestjs/common';
+import { StrategiesController } from './strategies.controller';
+import { StrategiesService } from './strategies.service';
+
+@Module({
+  controllers: [StrategiesController],
+  providers: [StrategiesService]
+})
+export class StrategiesModule {}
+</file>
+
+<file path="src/strategies/strategies.service.ts">
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+type SavedStrategy = {
+  id: string;
+  name: string;
+  triggerToken: string;
+  created_at: string;
+};
+
+@Injectable()
+export class StrategiesService {
+  constructor(private configService: ConfigService) {}
+
+  async generateStrategy(prompt?: string, name?: string) {
+    const useMock = this.configService.get<string>('USE_MOCK_AI') === 'true';
+
+    if (useMock || !prompt) {
+      return this.getMockStrategy(prompt, name);
+    }
+
+    return this.getMockStrategy(prompt, name);
+  }
+
+  private getMockStrategy(prompt?: string, name?: string) {
+    // 根据 prompt 关键词智能选择不同 mock 策略
+    const lowerPrompt = (prompt ?? '').toLowerCase();
+
+    const mockStrategies = [
+      {
+        name: name || 'PEPE Trend Hunter',
+        triggerToken: 'PEPE',
+        timeframe: '1 hour',
+        explanation:
+          'AI detected strong social buzz spike (+35%) and whale inflows. Recommending aggressive long position with strict risk controls.',
+        signals: [
+          'Social sentiment spikes',
+          'Whale inflows',
+          'Volume increase',
+        ],
+        riskControls: ['Small position size', 'Pause during high volatility'],
+        workflow: {
+          nodes: [
+            {
+              id: '1',
+              type: 'socialSentiment',
+              label: 'Social Sentiment\nReal-time buzz',
+            },
+            {
+              id: '2',
+              type: 'onChainActivity',
+              label: 'On-chain Activity\nWhale movements, hi',
+            },
+            {
+              id: '3',
+              type: 'riskControl',
+              label: 'Risk Control\nPlaces trades & repct.',
+            },
+            {
+              id: '4',
+              type: 'onChainEvent',
+              label: 'On-chain Event\n(Auto-Generated)',
+            },
+            {
+              id: '5',
+              type: 'executePrediction',
+              label: 'Execute Prediction\nAuto-Settle',
+            },
+          ],
+          edges: [
+            { from: '1', to: '3' },
+            { from: '2', to: '3' },
+            { from: '3', to: '4' },
+            { from: '4', to: '5' },
+          ],
+        },
+      },
+      {
+        name: name || 'Risk Averse DOGE',
+        triggerToken: 'DOGE',
+        timeframe: '4 hours',
+        explanation:
+          'Conservative strategy focusing on low volatility entries with tight stop-loss and position sizing.',
+        signals: [
+          'Holder count rising',
+          'Stable volume',
+          'Low volatility periods',
+        ],
+        riskControls: [
+          'Very small position',
+          'Strict stop-loss',
+          'Pause on news events',
+        ],
+        workflow: {
+          nodes: [
+            {
+              id: '1',
+              type: 'socialSentiment',
+              label: 'Social Sentiment\nMonitor stability',
+            },
+            {
+              id: '2',
+              type: 'onChainActivity',
+              label: 'On-chain Activity\nHolder growth',
+            },
+            {
+              id: '3',
+              type: 'riskControl',
+              label: 'Risk Control\nTiny positions only',
+            },
+            {
+              id: '4',
+              type: 'executePrediction',
+              label: 'Execute Prediction\nSafe entry only',
+            },
+          ],
+          edges: [
+            { from: '1', to: '3' },
+            { from: '2', to: '3' },
+            { from: '3', to: '4' },
+          ],
+        },
+      },
+      {
+        name: name || 'Shiba Moon Shot',
+        triggerToken: 'SHIB',
+        timeframe: '30 mins',
+        explanation:
+          'High-risk high-reward strategy triggered by sudden volume and sentiment explosion.',
+        signals: [
+          'Extreme buzz surge',
+          'Rapid volume spike',
+          'FOMO indicators',
+        ],
+        riskControls: ['Quick take-profit', 'Hard stop-loss', 'One-shot entry'],
+        workflow: {
+          nodes: [
+            {
+              id: '1',
+              type: 'socialSentiment',
+              label: 'Social Sentiment\nExtreme spike detect',
+            },
+            {
+              id: '2',
+              type: 'onChainActivity',
+              label: 'On-chain Activity\nVolume explosion',
+            },
+            {
+              id: '3',
+              type: 'riskControl',
+              label: 'Risk Control\nOne-shot trade',
+            },
+            {
+              id: '4',
+              type: 'executePrediction',
+              label: 'Execute Prediction\nFast settle',
+            },
+          ],
+          edges: [
+            { from: '1', to: '2' },
+            { from: '2', to: '3' },
+            { from: '3', to: '4' },
+          ],
+        },
+      },
+    ];
+
+    // 智能匹配：包含 token 名称的优先
+    const tokenMatch = mockStrategies.find((s) =>
+      lowerPrompt.includes(s.triggerToken.toLowerCase()),
+    );
+    if (tokenMatch) return tokenMatch;
+
+    // 风险偏好匹配
+    if (
+      lowerPrompt.includes('risk') ||
+      lowerPrompt.includes('safe') ||
+      lowerPrompt.includes('conservative')
+    ) {
+      return mockStrategies[1];
+    }
+
+    // 默认返回最炫酷的 PEPE 策略
+    return mockStrategies[0];
+  }
+
+  async getSavedStrategies(_userId: string): Promise<SavedStrategy[]> {
+    return [
+      {
+        id: '1',
+        name: 'PEPE Trend Hunter',
+        triggerToken: 'PEPE',
+        created_at: '2025-12-15T08:00:00.000Z',
+      },
+      {
+        id: '2',
+        name: 'Risk Averse DOGE',
+        triggerToken: 'DOGE',
+        created_at: '2025-12-14T08:00:00.000Z',
+      },
+    ];
+  }
+
+  async saveStrategy(_userId: string, payload: { strategy: any; name?: string }) {
+    return {
+      id: `saved-${Date.now()}`,
+      ...payload,
+      saved_at: new Date().toISOString(),
+    };
+  }
+}
+</file>
+
+<file path="src/tickets/tickets.controller.ts">
+import { Controller, Post, Get, Body } from '@nestjs/common';
+import { TicketsService } from './tickets.service';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+
+class MintDto {
+  market_id: string;
+  quantity?: number;
+}
+
+class ArmDto {
+  ticket_ids: string[];
+}
+
+@ApiTags('tickets')
+@Controller('tickets')
+export class TicketsController {
+  constructor(private readonly ticketsService: TicketsService) {}
+
+  @Post('mint')
+  @ApiOperation({ summary: '铸造预测票据' })
+  async mint(@Body() body: MintDto) {
+    return {
+      success: true,
+      data: await this.ticketsService.mintTickets(
+        'demo-user',
+        body.market_id,
+        body.quantity || 1,
+      ),
+    };
+  }
+
+  @Post('arm')
+  @ApiOperation({ summary: '武装票据（准备参与预测）' })
+  async arm(@Body() body: ArmDto) {
+    return {
+      success: true,
+      data: await this.ticketsService.armTickets(body.ticket_ids),
+    };
+  }
+
+  @Get('me')
+  @ApiOperation({ summary: '获取当前用户票据状态' })
+  async getMyTickets() {
+    return {
+      success: true,
+      data: await this.ticketsService.getUserTickets('demo-user'), // 黑客松用固定用户
+    };
+  }
+}
+</file>
+
+<file path="src/tickets/tickets.module.ts">
+import { Module } from '@nestjs/common';
+import { TicketsController } from './tickets.controller';
+import { TicketsService } from './tickets.service';
+import { SupabaseService } from '../common/supabase/supabase.service';
+
+@Module({
+  controllers: [TicketsController],
+  providers: [TicketsService, SupabaseService],
+})
+export class TicketsModule {}
+</file>
+
+<file path="src/tickets/tickets.service.ts">
+import { Injectable } from '@nestjs/common';
+import { SupabaseService } from '../common/supabase/supabase.service';
+
+type TicketRecord = {
+  id?: string;
+  user_id: string;
+  market_id: string;
+  status: string;
+};
+
+@Injectable()
+export class TicketsService {
+  constructor(private supabaseService: SupabaseService) {}
+
+  async mintTickets(userId: string, marketId: string, quantity = 1) {
+    const tickets: TicketRecord[] = Array(quantity)
+      .fill(null)
+      .map(() => ({
+        user_id: userId,
+        market_id: marketId,
+        status: 'minted',
+      }));
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('tickets')
+      .insert(tickets)
+      .select();
+
+    if (error) throw new Error('Mint failed');
+    return data;
+  }
+
+  async armTickets(ticketIds: string[]) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('tickets')
+      .update({ status: 'armed' })
+      .in('id', ticketIds)
+      .select();
+
+    if (error) throw new Error('Arm failed');
+    return data;
+  }
+
+  async getUserTickets(userId: string) {
+    const { data } = await this.supabaseService
+      .getClient()
+      .from('tickets')
+      .select('*')
+      .eq('user_id', userId);
+
+    const rows = (data ?? []) as TicketRecord[];
+    const summary = {
+      minted: rows.filter((t) => t.status === 'minted').length,
+      armed_active: rows.filter((t) => t.status === 'armed').length,
+      triggered: rows.filter((t) => t.status === 'triggered').length,
+      used: rows.filter((t) => t.status === 'used').length,
+      expired: rows.filter((t) => t.status === 'expired').length,
+      ready_count: rows.filter((t) => t.status === 'armed').length,
+    };
+
+    return { summary, tickets: rows };
+  }
+}
+</file>
+
+<file path="src/unlock/unlock.controller.ts">
+import { Controller, Post, Body } from '@nestjs/common';
+import { UnlockService } from './unlock.service';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+
+class UnlockDto {
+  market_id: string;
+}
+
+@ApiTags('unlock')
+@Controller('markets')
+export class UnlockController {
+  constructor(private readonly unlockService: UnlockService) {}
+
+  @Post('unlock')
+  @ApiOperation({ summary: '解锁市场高级内容（Top-3 Unlock 0.5 USDC）' })
+  async unlock(@Body() body: UnlockDto) {
+    // 黑客松模拟：假设用户已支付，直接解锁
+    return {
+      success: true,
+      data: await this.unlockService.unlockMarket(body.market_id, 'demo-user'),
+    };
+  }
+}
+</file>
+
+<file path="src/unlock/unlock.module.ts">
+import { Module } from '@nestjs/common';
+import { UnlockController } from './unlock.controller';
+import { UnlockService } from './unlock.service';
+import { SupabaseService } from '../common/supabase/supabase.service';
+
+@Module({
+  controllers: [UnlockController],
+  providers: [UnlockService, SupabaseService],
+})
+export class UnlockModule {}
+</file>
+
+<file path="src/unlock/unlock.service.ts">
+import { Injectable } from '@nestjs/common';
+import { SupabaseService } from '../common/supabase/supabase.service';
+
+@Injectable()
+export class UnlockService {
+  constructor(private supabaseService: SupabaseService) {}
+
+  async unlockMarket(marketId: string, userId: string) {
+    // 黑客松简化：直接把 unlock_progress_pct 设为 100
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('markets')
+      .update({ unlock_progress_pct: 100 })
+      .eq('id', marketId);
+
+    if (error) throw new Error('Unlock failed');
+
+    // 记录用户解锁历史（可选表 user_unlocks）
+    return { unlocked: true, marketId };
+  }
+}
+</file>
+
+<file path="src/app.controller.spec.ts">
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+
+    appController = app.get<AppController>(AppController);
+  });
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+});
+</file>
+
+<file path="src/app.controller.ts">
+import { Controller, Get } from '@nestjs/common';
+import { AppService } from './app.service';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+}
+</file>
+
+<file path="src/app.module.ts">
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { SupabaseService } from './common/supabase/supabase.service';
+import { MarketsModule } from './markets/markets.module';
+import { UnlockModule } from './unlock/unlock.module';
+import { TicketsModule } from './tickets/tickets.module';
+import { ArenaController } from './arena/arena.controller';
+import { StrategiesModule } from './strategies/strategies.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    MarketsModule,
+    UnlockModule,
+    TicketsModule,
+    StrategiesModule,
+  ],
+  providers: [SupabaseService],
+  exports: [SupabaseService],
+  controllers: [ArenaController],
+})
+export class AppModule {}
+</file>
+
+<file path="src/app.service.ts">
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!';
+  }
+}
+</file>
+
+<file path="src/main.ts">
+import { NestFactory } from '@nestjs/core';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  // Swagger 配置
+  const config = new DocumentBuilder()
+    .setTitle('Crux Trade API')
+    .setDescription('AI-powered crypto prediction market')
+    .setVersion('0.1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('docs', app, document, {
+    swaggerOptions: { persistAuthorization: true },
+  });
+
+  app.enableCors(); // 前端跨域必须
+
+  await app.listen(process.env.PORT || 3000);
+  console.log(`API running on http://localhost:3000`);
+  console.log(`Swagger: http://localhost:3000/docs`);
+}
+bootstrap();
+</file>
+
+<file path="test/app.e2e-spec.ts">
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { AppModule } from './../src/app.module';
+
+describe('AppController (e2e)', () => {
+  let app: INestApplication<App>;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect('Hello World!');
+  });
+});
+</file>
+
+<file path="test/jest-e2e.json">
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
+}
+</file>
+
+<file path=".gitignore">
+# compiled output
+/dist
+/node_modules
+/build
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+
+# Tests
+/coverage
+/.nyc_output
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# temp directory
+.temp
+.tmp
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+</file>
+
+<file path=".prettierrc">
+{
+  "singleQuote": true,
+  "trailingComma": "all"
+}
+</file>
+
+<file path="eslint.config.mjs">
+// @ts-check
+import eslint from '@eslint/js';
+import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  {
+    ignores: ['eslint.config.mjs'],
+  },
+  eslint.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
+  eslintPluginPrettierRecommended,
+  {
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.jest,
+      },
+      sourceType: 'commonjs',
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-floating-promises': 'warn',
+      '@typescript-eslint/no-unsafe-argument': 'warn',
+      "prettier/prettier": ["error", { endOfLine: "auto" }],
+    },
+  },
+);
+</file>
+
+<file path="nest-cli.json">
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "deleteOutDir": true
+  }
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "crux-trade-api",
+  "version": "0.0.1",
+  "description": "",
+  "author": "",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:e2e": "jest --config ./test/jest-e2e.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.2.3",
+    "@supabase/supabase-js": "^2.87.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@eslint/js": "^9.18.0",
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.1",
+    "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.10.7",
+    "@types/supertest": "^6.0.2",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.2",
+    "globals": "^16.0.0",
+    "jest": "^30.0.0",
+    "prettier": "^3.4.2",
+    "source-map-support": "^0.5.21",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-loader": "^9.5.2",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
+  }
+}
+</file>
+
+<file path="README.md">
+<p align="center">
+  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+</p>
+
+[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
+[circleci-url]: https://circleci.com/gh/nestjs/nest
+
+  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
+    <p align="center">
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
+<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
+<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
+<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
+<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
+  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
+    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
+  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
+</p>
+  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
+  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+
+## Description
+
+[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+
+## Project setup
+
+```bash
+$ npm install
+```
+
+## Compile and run the project
+
+```bash
+# development
+$ npm run start
+
+# watch mode
+$ npm run start:dev
+
+# production mode
+$ npm run start:prod
+```
+
+## Run tests
+
+```bash
+# unit tests
+$ npm run test
+
+# e2e tests
+$ npm run test:e2e
+
+# test coverage
+$ npm run test:cov
+```
+
+## Deployment
+
+When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+
+If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+
+```bash
+$ npm install -g @nestjs/mau
+$ mau deploy
+```
+
+With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+
+## Resources
+
+Check out a few resources that may come in handy when working with NestJS:
+
+- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
+- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
+- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
+- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
+- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
+- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
+- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
+- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+
+## Support
+
+Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+
+## Stay in touch
+
+- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
+- Website - [https://nestjs.com](https://nestjs.com/)
+- Twitter - [@nestframework](https://twitter.com/nestframework)
+
+## License
+
+Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# crux-trade-api
+</file>
+
+<file path="tsconfig.build.json">
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "noFallthroughCasesInSwitch": false
+  }
+}
+</file>
+
+</files>
