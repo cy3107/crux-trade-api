@@ -2,13 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
-interface TwitterData {
-  mentions24h: number;
-  sentiment: 'bullish' | 'bearish' | 'neutral';
-  influencerMentions: number;
-  engagementRate: number;
-}
-
 interface TelegramData {
   memberCount: number;
   messagesLast24h: number;
@@ -18,7 +11,6 @@ interface TelegramData {
 
 @Injectable()
 export class SocialDataProvider {
-  private twitterCache: Map<string, { data: TwitterData; timestamp: number }> = new Map();
   private telegramCache: Map<string, { data: TelegramData; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
   private proxyAgent: ProxyAgent | null = null;
@@ -46,175 +38,6 @@ export class SocialDataProvider {
     }
 
     return undiciFetch(url, fetchOptions) as unknown as Response;
-  }
-
-  /**
-   * 获取 Twitter 提及数据
-   * 支持多种 API 源：RapidAPI Twitter、Nitter 等
-   */
-  async getTwitterMentions(tokenSymbol: string): Promise<TwitterData> {
-    // 检查缓存
-    const cached = this.twitterCache.get(tokenSymbol);
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      return cached.data;
-    }
-
-    const apiKey = this.config.get('TWITTER_API_KEY');
-
-    if (apiKey) {
-      try {
-        const data = await this.fetchTwitterFromRapidAPI(tokenSymbol, apiKey);
-        this.twitterCache.set(tokenSymbol, { data, timestamp: Date.now() });
-        return data;
-      } catch (error) {
-        console.warn('RapidAPI Twitter 失败，尝试备用方案:', error);
-      }
-    }
-
-    // 备用：使用 CoinGecko 的社交数据
-    try {
-      const data = await this.fetchSocialFromCoinGecko(tokenSymbol);
-      this.twitterCache.set(tokenSymbol, { data, timestamp: Date.now() });
-      return data;
-    } catch (error) {
-      console.warn('CoinGecko 社交数据获取失败:', error);
-    }
-
-    // 最终返回默认值
-    return { mentions24h: 0, sentiment: 'neutral', influencerMentions: 0, engagementRate: 0 };
-  }
-
-  /**
-   * 从 RapidAPI 获取 Twitter 数据
-   */
-  private async fetchTwitterFromRapidAPI(tokenSymbol: string, apiKey: string): Promise<TwitterData> {
-    const response = await this.fetchWithProxy(
-      `https://twitter-api45.p.rapidapi.com/search.php?query=${encodeURIComponent(tokenSymbol)}&search_type=Latest`,
-      {
-        headers: {
-          'X-RapidAPI-Key': apiKey,
-          'X-RapidAPI-Host': 'twitter-api45.p.rapidapi.com',
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Twitter API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const tweets = data.timeline || [];
-
-    // 分析情绪
-    const sentiment = this.analyzeSentiment(tweets);
-
-    // 计算参与度
-    const totalEngagement = tweets.reduce((sum: number, t: any) => {
-      return sum + (t.favorite_count || 0) + (t.retweet_count || 0) * 2;
-    }, 0);
-    const engagementRate = tweets.length > 0 ? totalEngagement / tweets.length : 0;
-
-    // 识别大V提及（粉丝数 > 10000）
-    const influencerTweets = tweets.filter((t: any) =>
-      t.user?.followers_count > 10000
-    );
-
-    return {
-      mentions24h: tweets.length,
-      sentiment,
-      influencerMentions: influencerTweets.length,
-      engagementRate: Math.round(engagementRate),
-    };
-  }
-
-  /**
-   * 从 CoinGecko 获取社交数据（备用方案）
-   */
-  private async fetchSocialFromCoinGecko(tokenSymbol: string): Promise<TwitterData> {
-    // 搜索 coin ID
-    const searchResponse = await this.fetchWithProxy(
-      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(tokenSymbol)}`
-    );
-    const searchData = await searchResponse.json();
-
-    const coin = searchData.coins?.find((c: any) =>
-      c.symbol.toLowerCase() === tokenSymbol.toLowerCase()
-    );
-
-    if (!coin) {
-      return { mentions24h: 0, sentiment: 'neutral', influencerMentions: 0, engagementRate: 0 };
-    }
-
-    // 获取详细数据
-    const detailResponse = await this.fetchWithProxy(
-      `https://api.coingecko.com/api/v3/coins/${coin.id}?localization=false&tickers=false&market_data=false&community_data=true&developer_data=false`
-    );
-    const detailData = await detailResponse.json();
-
-    const communityData = detailData.community_data || {};
-    const twitterFollowers = communityData.twitter_followers || 0;
-
-    // 估算提及数（基于粉丝数）
-    const estimatedMentions = Math.round(twitterFollowers / 1000);
-
-    // 根据市场趋势估算情绪
-    const sentiment: 'bullish' | 'bearish' | 'neutral' =
-      detailData.sentiment_votes_up_percentage > 60 ? 'bullish' :
-      detailData.sentiment_votes_up_percentage < 40 ? 'bearish' : 'neutral';
-
-    return {
-      mentions24h: estimatedMentions,
-      sentiment,
-      influencerMentions: Math.round(estimatedMentions * 0.1),
-      engagementRate: Math.round(twitterFollowers / 100),
-    };
-  }
-
-  /**
-   * 情感分析
-   */
-  private analyzeSentiment(tweets: any[]): 'bullish' | 'bearish' | 'neutral' {
-    if (!tweets || tweets.length === 0) return 'neutral';
-
-    const positiveWords = [
-      'moon', 'bullish', '🚀', 'buy', 'pump', 'lfg', 'wagmi',
-      'gem', 'alpha', 'based', '100x', 'diamond', 'hold', 'hodl',
-      'to the moon', 'mooning', 'breakout', 'bullrun'
-    ];
-    const negativeWords = [
-      'dump', 'scam', 'rug', 'bearish', 'sell', 'ngmi',
-      'rekt', 'crash', 'fraud', 'ponzi', 'dead', 'avoid',
-      'warning', 'rugpull', 'honeypot'
-    ];
-
-    let score = 0;
-    let totalWeight = 0;
-
-    tweets.forEach(tweet => {
-      const text = (tweet.text || tweet.full_text || '').toLowerCase();
-      const weight = Math.log10((tweet.user?.followers_count || 100) + 10); // 粉丝权重
-
-      positiveWords.forEach(word => {
-        if (text.includes(word)) {
-          score += weight;
-          totalWeight += weight;
-        }
-      });
-      negativeWords.forEach(word => {
-        if (text.includes(word)) {
-          score -= weight;
-          totalWeight += weight;
-        }
-      });
-    });
-
-    if (totalWeight === 0) return 'neutral';
-
-    const normalizedScore = score / Math.sqrt(totalWeight);
-
-    if (normalizedScore > 2) return 'bullish';
-    if (normalizedScore < -2) return 'bearish';
-    return 'neutral';
   }
 
   /**
@@ -362,11 +185,9 @@ export class SocialDataProvider {
   }
 
   /**
-   * 汇总社交指标
+   * 汇总社交指标（仅 Telegram）
    */
   async getCommunityMetrics(tokenSymbol: string) {
-    const twitter = await this.getTwitterMentions(tokenSymbol);
-
     // 尝试查找并获取 Telegram 数据
     let telegram: TelegramData | null = null;
     const telegramChannel = await this.findTelegramChannel(tokenSymbol);
@@ -374,10 +195,9 @@ export class SocialDataProvider {
       telegram = await this.getTelegramActivity(telegramChannel);
     }
 
-    const socialScore = this.calculateSocialScore(twitter, telegram);
+    const socialScore = this.calculateSocialScore(telegram);
 
     return {
-      twitter,
       telegram,
       socialScore,
     };
@@ -385,45 +205,34 @@ export class SocialDataProvider {
 
   /**
    * 计算综合社交评分 (0-100)
+   * 目前仅基于 Telegram 数据
    */
-  private calculateSocialScore(twitter: TwitterData, telegram: TelegramData | null): number {
+  private calculateSocialScore(telegram: TelegramData | null): number {
+    if (!telegram) {
+      return 50; // 无数据时返回中性值
+    }
+
     let score = 0;
     let maxScore = 0;
 
-    // Twitter 评分 (最高 60 分)
-    // 提及数评分 (最高 25 分)
-    score += Math.min(twitter.mentions24h / 4, 25);
-    maxScore += 25;
+    // Telegram 评分 (最高 100 分)
+    // 成员数 (最高 40 分)
+    score += Math.min(Math.log10(telegram.memberCount + 1) * 10, 40);
+    maxScore += 40;
 
-    // 情绪评分 (最高 20 分)
-    if (twitter.sentiment === 'bullish') score += 20;
-    else if (twitter.sentiment === 'neutral') score += 10;
+    // 消息活跃度 (最高 30 分)
+    score += Math.min(telegram.messagesLast24h / 10, 30);
+    maxScore += 30;
+
+    // 活跃用户 (最高 20 分)
+    score += Math.min(Math.log10(telegram.activeUsers24h + 1) * 5, 20);
     maxScore += 20;
 
-    // 大V提及 (最高 10 分)
-    score += Math.min(twitter.influencerMentions * 2, 10);
-    maxScore += 10;
-
-    // 参与度评分 (最高 5 分)
-    score += Math.min(twitter.engagementRate / 20, 5);
-    maxScore += 5;
-
-    // Telegram 评分 (最高 40 分)
-    if (telegram) {
-      // 成员数 (最高 20 分)
-      score += Math.min(Math.log10(telegram.memberCount + 1) * 5, 20);
-      maxScore += 20;
-
-      // 消息活跃度 (最高 10 分)
-      score += Math.min(telegram.messagesLast24h / 10, 10);
-      maxScore += 10;
-
-      // 增长率 (最高 10 分)
-      if (telegram.growthRate24h > 0) {
-        score += Math.min(telegram.growthRate24h * 10, 10);
-      }
-      maxScore += 10;
+    // 增长率 (最高 10 分)
+    if (telegram.growthRate24h > 0) {
+      score += Math.min(telegram.growthRate24h * 10, 10);
     }
+    maxScore += 10;
 
     // 归一化到 0-100
     return Math.round((score / maxScore) * 100);
