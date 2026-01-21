@@ -2,21 +2,93 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
+/**
+ * DEXScreener API 响应结构
+ * 参考文档: https://docs.dexscreener.com/api/reference
+ */
 interface DexScreenerPair {
-  baseToken: { address: string; symbol: string; name: string };
+  chainId: string;
+  dexId: string;
+  url: string;
+  pairAddress: string;
+  labels?: string[];
+  baseToken: {
+    address: string;
+    name: string;
+    symbol: string;
+  };
+  quoteToken: {
+    address: string;
+    name: string;
+    symbol: string;
+  };
+  priceNative: string;
   priceUsd: string;
-  volume: { h24: number };
-  liquidity: { usd: number };
-  priceChange: { h24: number };
-  txns: { h24: { buys: number; sells: number } };
+  liquidity: {
+    usd: number;
+    base: number;
+    quote: number;
+  };
   fdv: number;
+  marketCap: number;
+  pairCreatedAt: number;
+  // 多时间段数据
+  volume: {
+    h24: number;
+    h6: number;
+    h1: number;
+    m5: number;
+  };
+  priceChange: {
+    h24: number;
+    h6: number;
+    h1: number;
+    m5: number;
+  };
+  txns: {
+    h24: { buys: number; sells: number };
+    h6: { buys: number; sells: number };
+    h1: { buys: number; sells: number };
+    m5: { buys: number; sells: number };
+  };
+  info?: {
+    imageUrl?: string;
+    websites?: { url: string }[];
+    socials?: { platform: string; handle: string }[];
+  };
+  boosts?: {
+    active: number;
+  };
 }
+
+interface DexScreenerResponse {
+  schemaVersion?: string;
+  pairs: DexScreenerPair[] | null;
+}
+
+// 链 ID 映射
+const CHAIN_ID_MAP: Record<string, string> = {
+  ethereum: 'ethereum',
+  eth: 'ethereum',
+  bsc: 'bsc',
+  solana: 'solana',
+  base: 'base',
+  arbitrum: 'arbitrum',
+  polygon: 'polygon',
+  avalanche: 'avalanche',
+  fantom: 'fantom',
+  optimism: 'optimism',
+};
 
 @Injectable()
 export class Web3DataProvider {
+  private readonly BASE_URL = 'https://api.dexscreener.com';
   private dexScreenerCache: Map<string, { data: any; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 60 * 1000; // 1分钟缓存
   private proxyAgent: ProxyAgent | null = null;
+
+  // API 速率限制: 300 requests/minute for pairs/tokens endpoints
+  private readonly RATE_LIMIT = 300;
 
   constructor(private config: ConfigService) {
     // 初始化代理配置
@@ -50,26 +122,93 @@ export class Web3DataProvider {
   /**
    * 获取 Token 基础信息
    * 使用 DexScreener API (免费)
+   * 文档: https://docs.dexscreener.com/api/reference
+   *
+   * @param tokenAddress Token 合约地址
+   * @param chain 可选的链标识 (ethereum, bsc, solana, base, etc.)
    */
-  async getTokenMetrics(tokenAddress: string) {
+  async getTokenMetrics(tokenAddress: string, chain?: string) {
     try {
-      const data = await this.fetchDexScreenerData(tokenAddress);
+      const data = await this.fetchDexScreenerData(tokenAddress, chain);
 
       if (!data.pairs || data.pairs.length === 0) {
-        throw new Error('Token not found');
+        throw new Error('Token not found on any DEX');
       }
 
-      const pair = data.pairs[0] as DexScreenerPair;
+      // 如果指定了链，优先匹配该链的交易对
+      let pair: DexScreenerPair;
+      if (chain) {
+        const chainId = CHAIN_ID_MAP[chain.toLowerCase()] || chain;
+        const chainPair = data.pairs.find((p: DexScreenerPair) => p.chainId === chainId);
+        pair = chainPair || data.pairs[0];
+      } else {
+        // 默认选择流动性最高的交易对
+        pair = data.pairs.sort((a: DexScreenerPair, b: DexScreenerPair) =>
+          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+        )[0];
+      }
 
       return {
+        // 基础信息
         symbol: pair.baseToken.symbol,
         name: pair.baseToken.name,
-        priceUsd: parseFloat(pair.priceUsd),
-        volume24h: parseFloat(String(pair.volume.h24)),
-        liquidity: parseFloat(String(pair.liquidity.usd)),
-        priceChange24h: parseFloat(String(pair.priceChange.h24)),
-        txns24h: pair.txns.h24.buys + pair.txns.h24.sells,
-        marketCap: parseFloat(String(pair.fdv || 0)),
+        address: pair.baseToken.address,
+        chainId: pair.chainId,
+        dexId: pair.dexId,
+        pairAddress: pair.pairAddress,
+        url: pair.url,
+
+        // 价格数据
+        priceUsd: parseFloat(pair.priceUsd || '0'),
+        priceNative: parseFloat(pair.priceNative || '0'),
+
+        // 流动性
+        liquidity: pair.liquidity?.usd || 0,
+        liquidityBase: pair.liquidity?.base || 0,
+        liquidityQuote: pair.liquidity?.quote || 0,
+
+        // 市值
+        marketCap: pair.marketCap || 0,
+        fdv: pair.fdv || 0,
+
+        // 24 小时数据
+        volume24h: pair.volume?.h24 || 0,
+        priceChange24h: pair.priceChange?.h24 || 0,
+        txns24h: (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
+        buys24h: pair.txns?.h24?.buys || 0,
+        sells24h: pair.txns?.h24?.sells || 0,
+
+        // 6 小时数据
+        volume6h: pair.volume?.h6 || 0,
+        priceChange6h: pair.priceChange?.h6 || 0,
+        txns6h: (pair.txns?.h6?.buys || 0) + (pair.txns?.h6?.sells || 0),
+
+        // 1 小时数据
+        volume1h: pair.volume?.h1 || 0,
+        priceChange1h: pair.priceChange?.h1 || 0,
+        txns1h: (pair.txns?.h1?.buys || 0) + (pair.txns?.h1?.sells || 0),
+
+        // 5 分钟数据
+        volume5m: pair.volume?.m5 || 0,
+        priceChange5m: pair.priceChange?.m5 || 0,
+        txns5m: (pair.txns?.m5?.buys || 0) + (pair.txns?.m5?.sells || 0),
+
+        // 交易对创建时间
+        pairCreatedAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : null,
+
+        // 额外信息
+        labels: pair.labels || [],
+        imageUrl: pair.info?.imageUrl || null,
+        websites: pair.info?.websites?.map(w => w.url) || [],
+        socials: pair.info?.socials || [],
+        boostsActive: pair.boosts?.active || 0,
+
+        // 报价代币信息
+        quoteToken: {
+          address: pair.quoteToken.address,
+          symbol: pair.quoteToken.symbol,
+          name: pair.quoteToken.name,
+        },
       };
     } catch (error) {
       console.error('获取 Token 数据失败:', error);
@@ -78,10 +217,184 @@ export class Web3DataProvider {
   }
 
   /**
-   * 从 DexScreener 获取数据（带缓存和重试）
+   * 获取多个 Token 的信息 (批量查询)
+   * 最多支持 30 个地址
+   *
+   * @param tokenAddresses Token 地址数组
+   * @param chain 链标识
    */
-  private async fetchDexScreenerData(tokenAddress: string, retries = 3) {
-    const cached = this.dexScreenerCache.get(tokenAddress);
+  async getMultipleTokens(tokenAddresses: string[], chain: string = 'ethereum') {
+    if (tokenAddresses.length > 30) {
+      throw new Error('Maximum 30 addresses allowed per request');
+    }
+
+    const chainId = CHAIN_ID_MAP[chain.toLowerCase()] || chain;
+    const addresses = tokenAddresses.join(',');
+    const cacheKey = `multi:${chainId}:${addresses}`;
+
+    const cached = this.dexScreenerCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    try {
+      const response = await this.fetchWithProxy(
+        `${this.BASE_URL}/tokens/v1/${chainId}/${addresses}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.dexScreenerCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (error) {
+      console.error('批量获取 Token 数据失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取 Token 的所有交易对
+   *
+   * @param tokenAddress Token 地址
+   * @param chain 链标识
+   */
+  async getTokenPairs(tokenAddress: string, chain: string = 'ethereum') {
+    const chainId = CHAIN_ID_MAP[chain.toLowerCase()] || chain;
+    const cacheKey = `pairs:${chainId}:${tokenAddress}`;
+
+    const cached = this.dexScreenerCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    try {
+      const response = await this.fetchWithProxy(
+        `${this.BASE_URL}/token-pairs/v1/${chainId}/${tokenAddress}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.dexScreenerCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (error) {
+      console.error('获取交易对数据失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 搜索交易对
+   *
+   * @param query 搜索关键词 (如 "PEPE" 或 "SOL/USDC")
+   */
+  async searchPairs(query: string) {
+    const cacheKey = `search:${query}`;
+
+    const cached = this.dexScreenerCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    try {
+      const response = await this.fetchWithProxy(
+        `${this.BASE_URL}/latest/dex/search?q=${encodeURIComponent(query)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.dexScreenerCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (error) {
+      console.error('搜索交易对失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取最新的 Token Profiles
+   */
+  async getLatestTokenProfiles() {
+    const cacheKey = 'profiles:latest';
+
+    const cached = this.dexScreenerCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    try {
+      const response = await this.fetchWithProxy(
+        `${this.BASE_URL}/token-profiles/latest/v1`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.dexScreenerCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (error) {
+      console.error('获取 Token Profiles 失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取热门 Token Boosts
+   */
+  async getTopTokenBoosts() {
+    const cacheKey = 'boosts:top';
+
+    const cached = this.dexScreenerCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    try {
+      const response = await this.fetchWithProxy(
+        `${this.BASE_URL}/token-boosts/top/v1`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.dexScreenerCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (error) {
+      console.error('获取 Token Boosts 失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 从 DexScreener 获取数据（带缓存和重试）
+   *
+   * API 端点说明:
+   * - /tokens/v1/{chainId}/{tokenAddresses} - 指定链查询 (推荐)
+   * - /latest/dex/tokens/{tokenAddress} - 全链搜索 (兼容旧版)
+   *
+   * 速率限制: 300 requests/minute
+   */
+  private async fetchDexScreenerData(
+    tokenAddress: string,
+    chain?: string,
+    retries = 3
+  ): Promise<DexScreenerResponse> {
+    const chainId = chain ? (CHAIN_ID_MAP[chain.toLowerCase()] || chain) : null;
+    const cacheKey = chainId ? `${chainId}:${tokenAddress}` : tokenAddress;
+
+    const cached = this.dexScreenerCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
       return cached.data;
     }
@@ -93,20 +406,38 @@ export class Web3DataProvider {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超时
 
-        const response = await this.fetchWithProxy(
-          `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
-          { signal: controller.signal }
-        );
+        // 根据是否指定链选择不同的 API 端点
+        let url: string;
+        if (chainId) {
+          // 使用新版 API: /tokens/v1/{chainId}/{tokenAddresses}
+          url = `${this.BASE_URL}/tokens/v1/${chainId}/${tokenAddress}`;
+        } else {
+          // 使用兼容版 API: /latest/dex/tokens/{tokenAddress} (全链搜索)
+          url = `${this.BASE_URL}/latest/dex/tokens/${tokenAddress}`;
+        }
 
+        const response = await this.fetchWithProxy(url, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!response.ok) {
+          // 如果指定链查询失败，尝试全链搜索
+          if (chainId && response.status === 404) {
+            console.warn(`[DexScreener] 在 ${chainId} 链未找到，尝试全链搜索`);
+            return this.fetchDexScreenerData(tokenAddress, undefined, retries - attempt);
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const data = await response.json();
-        this.dexScreenerCache.set(tokenAddress, { data, timestamp: Date.now() });
-        return data;
+
+        // 标准化响应格式
+        const normalizedData: DexScreenerResponse = {
+          schemaVersion: data.schemaVersion,
+          pairs: data.pairs || (Array.isArray(data) ? data : null),
+        };
+
+        this.dexScreenerCache.set(cacheKey, { data: normalizedData, timestamp: Date.now() });
+        return normalizedData;
       } catch (error) {
         lastError = error as Error;
         console.warn(`[DexScreener] 第 ${attempt} 次请求失败:`, error instanceof Error ? error.message : error);
@@ -237,8 +568,8 @@ export class Web3DataProvider {
       const estimatedHolders = Math.round(txns24h * 5); // 假设1/5的持有者每天交易
 
       // 基于流动性和市值估算集中度
-      const liquidity = parseFloat(pair.liquidity?.usd || '0');
-      const fdv = parseFloat(pair.fdv || '0');
+      const liquidity = pair.liquidity?.usd || 0;
+      const fdv = pair.fdv || 0;
       const liquidityRatio = fdv > 0 ? liquidity / fdv : 0;
 
       // 流动性占比低可能意味着更集中
@@ -330,7 +661,7 @@ export class Web3DataProvider {
       const pair = data.pairs[0];
       const buys = pair.txns?.h24?.buys || 0;
       const sells = pair.txns?.h24?.sells || 0;
-      const volume24h = parseFloat(pair.volume?.h24 || '0');
+      const volume24h = pair.volume?.h24 || 0;
       const totalTxns = buys + sells;
 
       // 估算新持有者：买入交易数的一定比例是新持有者
