@@ -14,13 +14,21 @@ interface EnhancedTokenData extends TokenData {
   composite?: any;
 }
 
-interface PredictionResult {
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  model: string;
+}
+
+export interface PredictionResult {
   prediction: 'bullish' | 'bearish' | 'neutral';
   confidence: number;
   priceTarget24h: number;
   signals: string[];
   risks: string[];
   reasoning: string;
+  tokenUsage?: TokenUsage;
 }
 
 @Injectable()
@@ -96,6 +104,17 @@ export class AiEngineService {
       }
 
       const prediction = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+
+      // 添加 token 使用信息
+      if (result.usage) {
+        prediction.tokenUsage = {
+          promptTokens: result.usage.prompt_tokens,
+          completionTokens: result.usage.completion_tokens,
+          totalTokens: result.usage.total_tokens,
+          model: 'mixtral-8x7b-32768',
+        };
+      }
+
       return prediction;
 
     } catch (error) {
@@ -142,8 +161,8 @@ export class AiEngineService {
       });
 
       const result = await response.json();
-      console.log(result);
-      
+      console.log('[AI Engine] Groq Response:', JSON.stringify(result.usage));
+
       if (!result.choices || !result.choices[0]) {
         throw new Error('API 返回格式错误');
       }
@@ -159,6 +178,17 @@ export class AiEngineService {
       }
 
       const prediction = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+
+      // 添加 token 使用信息
+      if (result.usage) {
+        prediction.tokenUsage = {
+          promptTokens: result.usage.prompt_tokens,
+          completionTokens: result.usage.completion_tokens,
+          totalTokens: result.usage.total_tokens,
+          model: 'llama-3.3-70b-versatile',
+        };
+      }
+
       return prediction;
 
     } catch (error) {

@@ -6,6 +6,18 @@ import { SocialDataProvider } from './providers/social-data.provider';
 import { AiEngineService } from './ai-engine.service';
 import { MarketIntelligenceService, MarketIntelligence } from './market-intelligence.service';
 import { SupabaseService } from '../common/supabase/supabase.service';
+import { StreamEvent } from './dto/chat-input.dto';
+
+/**
+ * 输入验证结果
+ */
+export interface InputValidation {
+  valid: boolean;
+  type: 'token_address' | 'hot_query' | 'help_query' | 'invalid';
+  tokenAddress?: string;
+  chain?: string;
+  reason?: string;
+}
 
 @Injectable()
 export class AiAgentService {
@@ -97,6 +109,8 @@ export class AiAgentService {
           dataQuality: intelligence.meta.dataQuality,
           sources: intelligence.meta.sources,
         },
+        // Token 使用统计
+        tokenUsage: prediction.tokenUsage || null,
       };
     } catch (error) {
       console.error('分析失败:', error);
@@ -144,6 +158,8 @@ export class AiAgentService {
           social: 50,
           timestamp: new Date().toISOString(),
         },
+        // Token 使用统计
+        tokenUsage: prediction.tokenUsage || null,
       };
     } catch (error) {
       console.error('快速分析失败:', error);
@@ -435,5 +451,348 @@ export class AiAgentService {
       console.error('验证预测失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * 验证用户输入是否合法
+   */
+  validateInput(input: string): InputValidation {
+    const trimmedInput = input.trim();
+
+    // 1. 检查是否为 Token 地址
+    // Ethereum/BSC/Base 地址格式
+    if (/^0x[a-fA-F0-9]{40}$/.test(trimmedInput)) {
+      return {
+        valid: true,
+        type: 'token_address',
+        tokenAddress: trimmedInput,
+        chain: 'ethereum',
+      };
+    }
+
+    // Solana 地址格式
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmedInput)) {
+      return {
+        valid: true,
+        type: 'token_address',
+        tokenAddress: trimmedInput,
+        chain: 'solana',
+      };
+    }
+
+    const lowerInput = trimmedInput.toLowerCase();
+
+    // 2. 检查是否为热门查询
+    const hotKeywords = ['hot', 'trending', 'popular', '热门', '火热', 'top', 'best'];
+    if (hotKeywords.some(k => lowerInput.includes(k))) {
+      return {
+        valid: true,
+        type: 'hot_query',
+      };
+    }
+
+    // 3. 检查是否为帮助查询
+    const helpKeywords = ['help', '帮助', 'how', '怎么', '如何', 'what', '什么'];
+    if (helpKeywords.some(k => lowerInput.includes(k))) {
+      return {
+        valid: true,
+        type: 'help_query',
+      };
+    }
+
+    // 4. 检查是否与 crypto/web3/meme 币相关
+    const cryptoKeywords = [
+      'meme', 'token', 'coin', 'crypto', 'defi', 'nft', 'web3',
+      'eth', 'btc', 'sol', 'bnb', 'doge', 'shib', 'pepe',
+      '代币', '币', '加密', '区块链', 'blockchain',
+      'pump', 'dump', 'moon', 'rug', 'dex', 'swap',
+      'price', 'market', 'trade', '价格', '市场', '交易',
+      'analyze', 'analysis', 'predict', '分析', '预测',
+    ];
+
+    const isCryptoRelated = cryptoKeywords.some(k => lowerInput.includes(k));
+
+    if (isCryptoRelated) {
+      // 虽然相关但不是有效的地址，提示用户输入地址
+      return {
+        valid: false,
+        type: 'invalid',
+        reason: '请输入有效的 Token 合约地址进行分析，或输入 "hot" 查看热门 meme 币',
+      };
+    }
+
+    // 5. 不相关的查询 - 拒绝回答
+    return {
+      valid: false,
+      type: 'invalid',
+      reason: '抱歉，我是 Meme 币分析助手，只能回答与加密货币和 Web3 相关的问题。请输入 Token 地址进行分析，或输入 "hot" 查看热门 meme 币。',
+    };
+  }
+
+  /**
+   * 流式分析 meme 币
+   */
+  async *analyzeMemeStreaming(
+    tokenAddress: string,
+    chain: string = 'ethereum',
+  ): AsyncGenerator<StreamEvent> {
+    try {
+      // 阶段 1: 验证输入
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'validating',
+          progress: 5,
+          message: '验证 Token 地址...',
+        },
+      };
+
+      await this.delay(300);
+
+      // 阶段 2: 获取价格数据
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'fetching_price',
+          progress: 15,
+          message: '获取价格数据 (DEXScreener)...',
+        },
+      };
+
+      let intelligence: MarketIntelligence;
+      try {
+        // 开始获取市场情报
+        yield {
+          type: 'progress',
+          data: {
+            stage: 'fetching_market',
+            progress: 25,
+            message: '收集市场情报中...',
+          },
+        };
+
+        intelligence = await this.marketIntelligence.getTokenIntelligence(tokenAddress, chain);
+
+        yield {
+          type: 'content',
+          data: {
+            content: `📊 **${intelligence.token.symbol}** (${intelligence.token.name})\n`,
+          },
+        };
+
+        yield {
+          type: 'content',
+          data: {
+            content: `当前价格: $${intelligence.price.current.toFixed(8)}\n`,
+          },
+        };
+
+      } catch (error) {
+        yield {
+          type: 'error',
+          data: {
+            error: `获取 Token 数据失败: ${error.message}`,
+          },
+        };
+        return;
+      }
+
+      // 阶段 3: 获取新闻数据
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'fetching_news',
+          progress: 40,
+          message: '分析新闻情绪 (CryptoPanic)...',
+        },
+      };
+
+      await this.delay(200);
+
+      if (intelligence.news.count > 0) {
+        yield {
+          type: 'content',
+          data: {
+            content: `\n📰 **新闻情绪:** ${intelligence.news.sentiment} (${intelligence.news.count} 条相关新闻)\n`,
+          },
+        };
+      }
+
+      // 阶段 4: 获取社区数据
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'fetching_social',
+          progress: 55,
+          message: '分析社区热度 (Reddit)...',
+        },
+      };
+
+      await this.delay(200);
+
+      if (intelligence.reddit.mentions > 0) {
+        yield {
+          type: 'content',
+          data: {
+            content: `💬 **Reddit 讨论:** ${intelligence.reddit.mentions} 条提及，情绪${intelligence.reddit.sentiment === 'bullish' ? '积极' : intelligence.reddit.sentiment === 'bearish' ? '消极' : '中性'}\n`,
+          },
+        };
+      }
+
+      // 阶段 5: 链上数据分析
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'analyzing_onchain',
+          progress: 70,
+          message: '分析链上数据...',
+        },
+      };
+
+      await this.delay(200);
+
+      yield {
+        type: 'content',
+        data: {
+          content: `\n⛓️ **链上数据:**\n• 流动性: $${intelligence.onChain.liquidity.toLocaleString()}\n• 24h 交易数: ${intelligence.onChain.txns24h}\n• 持有者: ${intelligence.onChain.holders}\n`,
+        },
+      };
+
+      // 阶段 6: AI 分析
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'ai_analysis',
+          progress: 85,
+          message: '🤖 AI 深度分析中...',
+        },
+      };
+
+      const collectedData = this.buildAnalysisData(intelligence);
+      let prediction;
+
+      try {
+        prediction = await this.aiEngine.predictMemePriceEnhanced(collectedData, intelligence);
+      } catch (error) {
+        console.log('AI 分析失败，使用规则引擎:', error);
+        prediction = this.buildPredictionFromIntelligence(intelligence);
+      }
+
+      // 阶段 7: 输出预测结果
+      yield {
+        type: 'progress',
+        data: {
+          stage: 'generating_report',
+          progress: 95,
+          message: '生成分析报告...',
+        },
+      };
+
+      const predictionEmoji = {
+        bullish: '📈',
+        bearish: '📉',
+        neutral: '➡️',
+      };
+
+      const predictionText = {
+        bullish: '看多 (Bullish)',
+        bearish: '看空 (Bearish)',
+        neutral: '中性 (Neutral)',
+      };
+
+      yield {
+        type: 'content',
+        data: {
+          content: `\n${predictionEmoji[prediction.prediction]} **预测: ${predictionText[prediction.prediction]}**\n`,
+        },
+      };
+
+      yield {
+        type: 'content',
+        data: {
+          content: `**信心度:** ${prediction.confidence}%\n`,
+        },
+      };
+
+      yield {
+        type: 'content',
+        data: {
+          content: `**24h 目标价:** $${prediction.priceTarget24h.toFixed(8)}\n`,
+        },
+      };
+
+      // 信号
+      if (prediction.signals && prediction.signals.length > 0) {
+        yield {
+          type: 'content',
+          data: {
+            content: `\n✅ **看多信号:**\n${prediction.signals.map(s => `• ${s}`).join('\n')}\n`,
+          },
+        };
+      }
+
+      // 风险
+      if (prediction.risks && prediction.risks.length > 0) {
+        yield {
+          type: 'content',
+          data: {
+            content: `\n⚠️ **风险提示:**\n${prediction.risks.map(r => `• ${r}`).join('\n')}\n`,
+          },
+        };
+      }
+
+      // 分析理由
+      if (prediction.reasoning) {
+        yield {
+          type: 'content',
+          data: {
+            content: `\n💡 **分析理由:** ${prediction.reasoning}\n`,
+          },
+        };
+      }
+
+      // Token 使用
+      if (prediction.tokenUsage) {
+        yield {
+          type: 'content',
+          data: {
+            content: `\n🤖 **AI Token 消耗:** ${prediction.tokenUsage.totalTokens.toLocaleString()} tokens (${prediction.tokenUsage.model})\n`,
+          },
+        };
+      }
+
+      // 保存结果
+      this.savePredictionEnhanced(tokenAddress, prediction, intelligence).catch(err => {
+        console.error('保存预测失败:', err);
+      });
+
+      // 完成
+      yield {
+        type: 'done',
+        data: {
+          result: {
+            token: intelligence.token,
+            currentPrice: intelligence.price.current,
+            prediction,
+            tokenUsage: prediction.tokenUsage,
+          },
+        },
+      };
+
+    } catch (error) {
+      yield {
+        type: 'error',
+        data: {
+          error: `分析失败: ${error.message}`,
+        },
+      };
+    }
+  }
+
+  /**
+   * 延迟辅助函数
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

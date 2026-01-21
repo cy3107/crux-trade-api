@@ -11,10 +11,15 @@ import { MarketIntelligenceService } from './market-intelligence.service';
 import { AiAgentScheduler } from './ai-agent.scheduler';
 import { SupabaseService } from '../common/supabase/supabase.service';
 import { StrategiesService } from '../strategies/strategies.service';
+import { ApiKeyGuard, RateLimitGuard } from '../common/guards';
 
 @Module({
   controllers: [AiAgentController],
   providers: [
+    // 认证和限流守卫
+    ApiKeyGuard,
+    RateLimitGuard,
+
     // 核心服务
     AiAgentService,
     AiEngineService,
