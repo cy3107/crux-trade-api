@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Body } from '@nestjs/common';
 import { TicketsService } from './tickets.service';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 
 class MintDto {
   market_id: string;
@@ -14,7 +15,17 @@ class ArmDto {
 @ApiTags('tickets')
 @Controller('tickets')
 export class TicketsController {
-  constructor(private readonly ticketsService: TicketsService) {}
+  constructor(
+    private readonly ticketsService: TicketsService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  private getDemoUserId() {
+    return (
+      this.configService.get<string>('DEMO_USER_ID') ??
+      '00000000-0000-0000-0000-000000000000'
+    );
+  }
 
   @Post('mint')
   @ApiOperation({ summary: '铸造预测票据' })
@@ -22,7 +33,7 @@ export class TicketsController {
     return {
       success: true,
       data: await this.ticketsService.mintTickets(
-        'demo-user',
+        this.getDemoUserId(),
         body.market_id,
         body.quantity || 1,
       ),
@@ -43,7 +54,7 @@ export class TicketsController {
   async getMyTickets() {
     return {
       success: true,
-      data: await this.ticketsService.getUserTickets('demo-user'), // 黑客松用固定用户
+      data: await this.ticketsService.getUserTickets(this.getDemoUserId()), // 黑客松用固定用户
     };
   }
 }

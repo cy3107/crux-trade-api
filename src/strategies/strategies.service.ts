@@ -5,14 +5,14 @@ type SavedStrategy = {
   id: string;
   name: string;
   triggerToken: string;
-  created_at: string;
+  createdAt: string;
 };
 
 @Injectable()
 export class StrategiesService {
   constructor(private configService: ConfigService) {}
 
-  async generateStrategy(prompt?: string, name?: string) {
+  generateStrategy(prompt?: string, name?: string) {
     const useMock = this.configService.get<string>('USE_MOCK_AI') === 'true';
 
     if (useMock || !prompt) {
@@ -184,28 +184,28 @@ export class StrategiesService {
     return mockStrategies[0];
   }
 
-  async getSavedStrategies(_userId: string): Promise<SavedStrategy[]> {
+  getSavedStrategies(): SavedStrategy[] {
     return [
       {
         id: '1',
         name: 'PEPE Trend Hunter',
         triggerToken: 'PEPE',
-        created_at: '2025-12-15T08:00:00.000Z',
+        createdAt: '2025-12-15T08:00:00.000Z',
       },
       {
         id: '2',
         name: 'Risk Averse DOGE',
         triggerToken: 'DOGE',
-        created_at: '2025-12-14T08:00:00.000Z',
+        createdAt: '2025-12-14T08:00:00.000Z',
       },
     ];
   }
 
-  async saveStrategy(_userId: string, payload: { strategy: any; name?: string }) {
+  saveStrategy(payload: { strategy: any; name?: string }) {
     return {
       id: `saved-${Date.now()}`,
       ...payload,
-      saved_at: new Date().toISOString(),
+      savedAt: new Date().toISOString(),
     };
   }
 }

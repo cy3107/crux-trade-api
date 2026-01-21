@@ -33,8 +33,9 @@ async function bootstrap() {
 
   app.enableCors(); // 前端跨域必须
 
-  await app.listen(process.env.PORT || 3000);
-  console.log(`API running on http://localhost:3000`);
-  console.log(`Swagger: http://localhost:3000/docs`);
+  const port = process.env.PORT || 3001;
+  await app.listen(port);
+  console.log(`API running on http://localhost:${port}`);
+  console.log(`Swagger: http://localhost:${port}/docs`);
 }
-bootstrap();
+void bootstrap();

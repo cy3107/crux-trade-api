@@ -6,9 +6,9 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 export class ArenaController {
   private mockBattle = {
     status: 'in_progress',
-    time_remaining: '02:34:12',
-    win_rate_pct: 68,
-    total_battles: 24,
+    timeRemaining: '02:34:12',
+    winRatePct: 68,
+    totalBattles: 24,
     rank: 142,
   };
 
