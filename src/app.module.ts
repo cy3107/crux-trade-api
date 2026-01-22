@@ -10,6 +10,8 @@ import { StrategiesModule } from './strategies/strategies.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { InsightsController } from './insights/insights.controller';
 import { SettlementsController } from './settlements/settlements.controller';
+import { OrdersController } from './orders/orders.controller';
+import { OrdersService } from './orders/orders.service';
 
 @Module({
   imports: [
@@ -21,8 +23,13 @@ import { SettlementsController } from './settlements/settlements.controller';
     StrategiesModule,
     AiAgentModule,
   ],
-  providers: [SupabaseService],
+  providers: [SupabaseService, OrdersService],
   exports: [SupabaseService],
-  controllers: [ArenaController, InsightsController, SettlementsController],
+  controllers: [
+    ArenaController,
+    InsightsController,
+    SettlementsController,
+    OrdersController,
+  ],
 })
 export class AppModule {}

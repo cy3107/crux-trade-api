@@ -99,6 +99,7 @@ export class MarketsController {
   async getMarketDetail(@Param('id') id: string) {
     const market: MarketRecord = await this.marketsService.getMarketById(id);
     const changePct = Number(market?.change_24h_pct ?? 0);
+    const detail = this.getMarketDetailMock(market);
 
     const aiInsight = {
       signal: changePct > 0 ? 'bullish' : 'bearish',
@@ -117,8 +118,25 @@ export class MarketsController {
       success: true,
       data: {
         ...this.mapMarket(market),
+        ...detail,
         aiInsight,
       },
+    };
+  }
+
+  private getMarketDetailMock(market: MarketRecord) {
+    const tokenSymbol = market.token_symbol;
+    return {
+      title: `${market.token_name} Up or Down`,
+      ruleSummary:
+        `Resolves to Up if ${tokenSymbol}/USD closes at or above the start price ` +
+        'during the settlement window.',
+      settleTime: 'Jan 21, 8-9PM ET',
+      priceToBeat: this.mapMarket(market).currentPrice - 200,
+      impliedProbUp: 0.63,
+      impliedProbDown: 0.37,
+      priceUp: 99.9,
+      priceDown: 0.1,
     };
   }
 }
