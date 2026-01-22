@@ -12,6 +12,7 @@ import { AiAgentScheduler } from './ai-agent.scheduler';
 import { SupabaseService } from '../common/supabase/supabase.service';
 import { StrategiesService } from '../strategies/strategies.service';
 import { ApiKeyGuard, RateLimitGuard } from '../common/guards';
+import { MarketsService } from '../markets/markets.service';
 
 @Module({
   controllers: [AiAgentController],
@@ -36,6 +37,7 @@ import { ApiKeyGuard, RateLimitGuard } from '../common/guards';
     AiAgentScheduler,
     SupabaseService,
     StrategiesService,
+    MarketsService,
   ],
   exports: [AiAgentService, MarketIntelligenceService],
 })

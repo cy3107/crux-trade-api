@@ -94,6 +94,110 @@ export class MarketsService {
     ];
   }
 
+  /**
+   * 批量插入或更新 meme 币市场数据
+   * 先查询是否存在，存在则更新，不存在则插入
+   */
+  async upsertMemeCoins(coins: Omit<MarketRecord, 'id' | 'created_at'>[]): Promise<{
+    success: boolean;
+    inserted: number;
+    updated: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    let inserted = 0;
+    let updated = 0;
+
+    for (const coin of coins) {
+      try {
+        // 先查询是否存在
+        const { data: existing } = await this.supabaseService
+          .getClient()
+          .from('markets')
+          .select('id')
+          .eq('token_symbol', coin.token_symbol)
+          .maybeSingle();
+
+        const marketData = {
+          token_symbol: coin.token_symbol,
+          token_name: coin.token_name,
+          category: coin.category || 'meme',
+          current_price: coin.current_price,
+          change_24h_pct: coin.change_24h_pct,
+          volatility: coin.volatility,
+          volatility_level: this.getVolatilityLevel(coin.volatility || 0),
+          is_hot: coin.is_hot || false,
+          ending_soon: coin.ending_soon || false,
+          icon: this.getMemeIcon(coin.token_symbol),
+          updated_at: new Date().toISOString(),
+        };
+
+        if (existing) {
+          // 存在则更新
+          const { error } = await this.supabaseService
+            .getClient()
+            .from('markets')
+            .update(marketData)
+            .eq('id', existing.id);
+
+          if (error) {
+            errors.push(`${coin.token_symbol}: ${error.message}`);
+          } else {
+            updated++;
+          }
+        } else {
+          // 不存在则插入
+          const { error } = await this.supabaseService
+            .getClient()
+            .from('markets')
+            .insert({
+              ...marketData,
+              unlock_progress_pct: coin.unlock_progress_pct || Math.floor(Math.random() * 100),
+              unlock_cost_usdc: coin.unlock_cost_usdc || 0.5,
+            });
+
+          if (error) {
+            errors.push(`${coin.token_symbol}: ${error.message}`);
+          } else {
+            inserted++;
+          }
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Unknown error';
+        errors.push(`${coin.token_symbol}: ${errMsg}`);
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      inserted,
+      updated,
+      errors,
+    };
+  }
+
+  private getVolatilityLevel(volatility: number): string {
+    if (volatility >= 70) return 'high';
+    if (volatility >= 40) return 'medium';
+    return 'low';
+  }
+
+  private getMemeIcon(symbol: string): string {
+    const icons: Record<string, string> = {
+      DOGE: 'Ð',
+      SHIB: '🐕',
+      PEPE: '🐸',
+      FLOKI: '🐶',
+      BONK: '🦴',
+      WIF: '🎩',
+      MEME: '😂',
+      TURBO: '🚀',
+      WOJAK: '😢',
+      BABYDOGE: '🐾',
+    };
+    return icons[symbol.toUpperCase()] || '🪙';
+  }
+
   async getMarketById(id: string): Promise<MarketRecord> {
     const {
       data,

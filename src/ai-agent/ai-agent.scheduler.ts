@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { AiAgentService } from './ai-agent.service';
 import { StrategiesService } from '../strategies/strategies.service';
 import { SupabaseService } from '../common/supabase/supabase.service';
+import { CoinGeckoProvider } from './providers/coingecko.provider';
+import { MarketsService } from '../markets/markets.service';
 
 interface PredictionRecord {
   id: string;
@@ -28,7 +30,90 @@ export class AiAgentScheduler {
     private aiAgent: AiAgentService,
     private strategies: StrategiesService,
     private supabase: SupabaseService,
+    private coinGecko: CoinGeckoProvider,
+    private marketsService: MarketsService,
   ) {}
+
+  /**
+   * 每2分钟收集 meme 币数据并更新到 markets 表
+   */
+  @Cron('*/2 * * * *')
+  async collectMemeCoins() {
+    console.log('[Scheduler] 开始收集 meme 币数据...');
+
+    try {
+      // 从 CoinGecko 获取最热门的 5 个 meme 币
+      const memeCoins = await this.coinGecko.getMemeCoins(5);
+
+      if (memeCoins.length === 0) {
+        console.log('[Scheduler] 未获取到 meme 币数据');
+        return;
+      }
+
+      console.log(`[Scheduler] 获取到 ${memeCoins.length} 个 meme 币`);
+
+      // 转换数据格式并插入到 markets 表
+      const marketData = memeCoins.map((coin) => ({
+        token_symbol: coin.symbol,
+        token_name: coin.name,
+        category: 'meme' as const,
+        current_price: coin.currentPrice,
+        change_24h_pct: coin.priceChangePercentage24h,
+        volatility: this.calculateVolatility(coin),
+        is_hot: this.isHotCoin(coin),
+        ending_soon: false,
+        unlock_progress_pct: Math.floor(Math.random() * 100),
+        unlock_cost_usdc: 0.5,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const result = await this.marketsService.upsertMemeCoins(marketData);
+
+      console.log(`[Scheduler] meme 币数据更新完成: 新增 ${result.inserted} 个, 更新 ${result.updated} 个`);
+      if (result.errors.length > 0) {
+        console.warn('[Scheduler] 部分更新失败:', result.errors.slice(0, 5));
+      }
+    } catch (error) {
+      console.error('[Scheduler] meme 币收集任务失败:', error);
+    }
+  }
+
+  /**
+   * 计算波动性分数 (0-100)
+   */
+  private calculateVolatility(coin: {
+    priceChangePercentage24h: number;
+    priceChangePercentage7d: number;
+    high24h: number;
+    low24h: number;
+    currentPrice: number;
+  }): number {
+    // 基于24小时涨跌幅、7天涨跌幅和日内振幅计算波动性
+    const change24h = Math.abs(coin.priceChangePercentage24h || 0);
+    const change7d = Math.abs(coin.priceChangePercentage7d || 0);
+    const dayRange = coin.currentPrice > 0
+      ? ((coin.high24h - coin.low24h) / coin.currentPrice) * 100
+      : 0;
+
+    // 加权平均，并归一化到0-100
+    const rawVolatility = change24h * 0.4 + change7d * 0.3 / 7 + dayRange * 0.3;
+    return Math.min(100, Math.max(0, Math.round(rawVolatility * 2)));
+  }
+
+  /**
+   * 判断是否为热门币
+   */
+  private isHotCoin(coin: {
+    priceChangePercentage24h: number;
+    totalVolume: number;
+    marketCapRank: number;
+  }): boolean {
+    // 24小时涨幅超过10%，或交易量大且排名靠前
+    return (
+      coin.priceChangePercentage24h > 10 ||
+      (coin.totalVolume > 100000000 && coin.marketCapRank < 200)
+    );
+  }
 
   /**
    * 每30分钟扫描一次热门 meme 币

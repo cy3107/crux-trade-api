@@ -211,6 +211,57 @@ export class CoinGeckoProvider {
   }
 
   /**
+   * 获取 meme 币列表（按市值排序）
+   */
+  async getMemeCoins(limit: number = 20): Promise<CoinGeckoPrice[]> {
+    const cacheKey = this.getCacheKey('meme_coins', `limit:${limit}`);
+    const cached = this.getFromCache<CoinGeckoPrice[]>(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await this.fetchWithProxy(
+        `${this.BASE_URL}/coins/markets?vs_currency=usd&category=meme-token&order=market_cap_desc&per_page=${limit}&page=1&sparkline=false&price_change_percentage=24h,7d,30d`
+      );
+
+      if (!response.ok) {
+        throw new Error(`CoinGecko API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const result: CoinGeckoPrice[] = (data || []).map((coin: any) => ({
+        id: coin.id,
+        symbol: coin.symbol?.toUpperCase(),
+        name: coin.name,
+        currentPrice: coin.current_price || 0,
+        marketCap: coin.market_cap || 0,
+        marketCapRank: coin.market_cap_rank || 0,
+        totalVolume: coin.total_volume || 0,
+        high24h: coin.high_24h || 0,
+        low24h: coin.low_24h || 0,
+        priceChange24h: coin.price_change_24h || 0,
+        priceChangePercentage24h: coin.price_change_percentage_24h || 0,
+        priceChangePercentage7d: coin.price_change_percentage_7d_in_currency || 0,
+        priceChangePercentage30d: coin.price_change_percentage_30d_in_currency || 0,
+        circulatingSupply: coin.circulating_supply || 0,
+        totalSupply: coin.total_supply || 0,
+        ath: coin.ath || 0,
+        athChangePercentage: coin.ath_change_percentage || 0,
+        athDate: coin.ath_date || '',
+        atl: coin.atl || 0,
+        atlChangePercentage: coin.atl_change_percentage || 0,
+        atlDate: coin.atl_date || '',
+        lastUpdated: coin.last_updated || new Date().toISOString(),
+      }));
+
+      this.setCache(cacheKey, result);
+      return result;
+    } catch (error) {
+      console.warn('[CoinGecko] 获取 meme 币列表失败:', error);
+      return [];
+    }
+  }
+
+  /**
    * 获取全球市场数据
    */
   async getGlobalMarketData(): Promise<{
