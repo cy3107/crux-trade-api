@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SupabaseService } from '../common/supabase/supabase.service';
 import type { PostgrestError } from '@supabase/supabase-js';
+import { PaymentsService } from '../payments/payments.service';
 
 type OrderRow = {
   id: string;
@@ -26,6 +27,11 @@ type OrderResponse = {
   filledPrice: number;
   createdAt: string;
   txHash?: string | null;
+  payment?: {
+    method: 'X402';
+    token: string;
+    wallet: 'MetaMask';
+  };
 };
 
 type CreateOrderInput = {
@@ -34,11 +40,15 @@ type CreateOrderInput = {
   orderType: 'Market' | 'Limit';
   limitPrice?: number;
   shares: number;
+  paymentTxHash: string;
 };
 
 @Injectable()
 export class OrdersService {
-  constructor(private supabaseService: SupabaseService) {}
+  constructor(
+    private supabaseService: SupabaseService,
+    private paymentsService: PaymentsService,
+  ) {}
 
   private toNumber(value: number | string | null) {
     return value == null ? 0 : Number(value);
@@ -58,6 +68,7 @@ export class OrdersService {
   }
 
   async createOrder(userId: string, input: CreateOrderInput) {
+    const payment = await this.paymentsService.assertPaid(input.paymentTxHash);
     const orderId = `order-${Date.now()}`;
     const payload = {
       order_id: orderId,
@@ -69,7 +80,7 @@ export class OrdersService {
       shares: input.shares,
       status: 'pending',
       filled_price: input.orderType === 'Market' ? 0.52 : null,
-      tx_hash: '0xabc123',
+      tx_hash: input.paymentTxHash,
     };
 
     const {
@@ -87,7 +98,14 @@ export class OrdersService {
       throw new Error(`Create order failed: ${error.message}`);
     }
 
-    return this.mapOrder(data as OrderRow);
+    return {
+      ...this.mapOrder(data as OrderRow),
+      payment: {
+        method: 'X402',
+        token: payment.token,
+        wallet: 'MetaMask',
+      },
+    };
   }
 
   async getOrders(userId: string, marketId?: string) {

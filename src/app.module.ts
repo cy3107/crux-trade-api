@@ -12,6 +12,8 @@ import { InsightsController } from './insights/insights.controller';
 import { SettlementsController } from './settlements/settlements.controller';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
+import { PaymentsController } from './payments/payments.controller';
+import { PaymentsService } from './payments/payments.service';
 
 @Module({
   imports: [
@@ -23,13 +25,14 @@ import { OrdersService } from './orders/orders.service';
     StrategiesModule,
     AiAgentModule,
   ],
-  providers: [SupabaseService, OrdersService],
+  providers: [SupabaseService, OrdersService, PaymentsService],
   exports: [SupabaseService],
   controllers: [
     ArenaController,
     InsightsController,
     SettlementsController,
     OrdersController,
+    PaymentsController,
   ],
 })
 export class AppModule {}

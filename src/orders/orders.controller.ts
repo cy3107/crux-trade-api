@@ -9,6 +9,7 @@ class CreateOrderDto {
   orderType: 'Market' | 'Limit';
   limitPrice?: number;
   shares: number;
+  paymentTxHash: string;
 }
 
 @ApiTags('orders')
