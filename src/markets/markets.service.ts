@@ -167,7 +167,10 @@ export class MarketsService {
         errors.push(`${coin.token_symbol}: ${errMsg}`);
       }
     }
-
+    console.log(inserted);
+    console.log(updated);
+    console.log(errors);
+    
     return {
       success: errors.length === 0,
       inserted,

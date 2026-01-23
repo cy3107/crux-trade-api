@@ -12,6 +12,9 @@ import { InsightsController } from './insights/insights.controller';
 import { SettlementsController } from './settlements/settlements.controller';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
+import { WalletModule } from './wallet/wallet.module';
+import { BetsModule } from './bets/bets.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -22,6 +25,9 @@ import { OrdersService } from './orders/orders.service';
     TicketsModule,
     StrategiesModule,
     AiAgentModule,
+    WalletModule,
+    BetsModule,
+    PaymentsModule,
   ],
   providers: [SupabaseService, OrdersService],
   exports: [SupabaseService],
