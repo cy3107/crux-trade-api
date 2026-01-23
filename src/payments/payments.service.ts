@@ -1,310 +1,176 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { PostgrestError } from '@supabase/supabase-js';
-import { SupabaseService } from '../common/supabase/supabase.service';
 
-type QuoteRequest = {
-  userId?: string | null;
-  marketId: string;
-  direction: 'Up' | 'Down';
-  orderType: 'Market' | 'Limit';
-  limitPrice?: number;
-  shares: number;
-  token: string;
-};
+export interface PaymentRequired {
+  amount: string;
+  currency: string;
+  network: string;
+  networkId: string;
+  payTo: string;
+  validUntil: string;
+  nonce: string;
+  resource: string;
+}
 
-type QuoteTx = {
-  chainId: number;
-  from: string;
-  to: string;
-  data: string;
-  value: string;
-};
-
-type QuoteRecord = {
-  quoteId: string;
-  userId?: string | null;
-  marketId: string;
-  direction: 'Up' | 'Down';
-  orderType: 'Market' | 'Limit';
-  limitPrice?: number | null;
-  shares: number;
-  token: string;
-  amount: number;
-  spender: string;
-  deadline: string;
-  tx: QuoteTx;
-  status: 'quoted' | 'paid' | 'expired';
+interface VerificationResult {
+  isValid: boolean;
   txHash?: string;
-  createdAt: number;
-};
-
-type PaidPayment = {
-  quoteId: string;
-  token: string;
-  amount: number;
-  spender: string;
-  deadline: string;
-  txHash: string;
-};
-
-type PaymentQuoteRow = {
-  quote_id: string;
-  user_id: string | null;
-  market_id: string;
-  direction: string;
-  order_type: string;
-  limit_price: number | string | null;
-  shares: number | string;
-  token: string;
-  amount: number | string;
-  spender: string;
-  deadline: string;
-  tx_chain_id: number | string;
-  tx_from: string;
-  tx_to: string;
-  tx_data: string;
-  tx_value: string;
-  status: string;
-  tx_hash: string | null;
-  created_at: string;
-};
+  error?: string;
+}
 
 @Injectable()
 export class PaymentsService {
-  constructor(
-    private readonly config: ConfigService,
-    private readonly supabaseService: SupabaseService,
-  ) {}
+  // 平台收款地址 (可配置)
+  private readonly PLATFORM_WALLET_BASE: string;
+  private readonly PLATFORM_WALLET_SOLANA: string;
+  private readonly FACILITATOR_URL = 'https://x402-facilitator.coinbase.com';
 
-  private toNumber(value: number | string | null) {
-    return value == null ? 0 : Number(value);
+  constructor(private config: ConfigService) {
+    // 从环境变量读取，或使用默认测试地址
+    this.PLATFORM_WALLET_BASE =
+      this.config.get('PLATFORM_WALLET_BASE') ||
+      '0x742d35Cc6634C0532925a3b844Bc9e7595f0Ab1B';
+    this.PLATFORM_WALLET_SOLANA =
+      this.config.get('PLATFORM_WALLET_SOLANA') ||
+      'CruxTrade1111111111111111111111111111111111';
   }
 
-  private mapRowToQuote(row: PaymentQuoteRow): QuoteRecord {
-    return {
-      quoteId: row.quote_id,
-      userId: row.user_id,
-      marketId: row.market_id,
-      direction: row.direction as 'Up' | 'Down',
-      orderType: row.order_type as 'Market' | 'Limit',
-      limitPrice: row.limit_price == null ? null : this.toNumber(row.limit_price),
-      shares: this.toNumber(row.shares),
-      token: row.token,
-      amount: this.toNumber(row.amount),
-      spender: row.spender,
-      deadline: row.deadline,
-      tx: {
-        chainId: this.toNumber(row.tx_chain_id),
-        from: row.tx_from,
-        to: row.tx_to,
-        data: row.tx_data,
-        value: row.tx_value,
-      },
-      status: row.status as QuoteRecord['status'],
-      txHash: row.tx_hash ?? undefined,
-      createdAt: new Date(row.created_at).getTime(),
-    };
-  }
-
-  async createQuote(input: QuoteRequest) {
-    const quoteId = `quote-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const ttlSeconds = Number(this.config.get('X402_QUOTE_TTL_SECONDS') ?? 600);
-    const deadline = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-    const spender = this.config.get('X402_SPENDER') ?? '0xSpender';
-    const chainId = Number(this.config.get('X402_CHAIN_ID') ?? 1);
-    const from = this.config.get('X402_DEFAULT_FROM') ?? '0xUser';
-    const to = this.config.get('X402_TX_TO') ?? spender;
-    const data = this.config.get('X402_TX_DATA') ?? '0x';
-    const value = this.config.get('X402_TX_VALUE') ?? '0';
-    const amount = this.calculateAmount(input);
-
-    const record: QuoteRecord = {
-      quoteId,
-      userId: input.userId ?? null,
-      marketId: input.marketId,
-      direction: input.direction,
-      orderType: input.orderType,
-      limitPrice: input.limitPrice ?? null,
-      shares: input.shares,
-      token: input.token,
-      amount,
-      spender,
-      deadline,
-      tx: {
-        chainId,
-        from,
-        to,
-        data,
-        value,
-      },
-      status: 'quoted',
-      createdAt: Date.now(),
-    };
-
-    const {
-      error,
-    }: { data: PaymentQuoteRow | null; error: PostgrestError | null } =
-      await this.supabaseService
-        .getClient()
-        .from('payments_quotes')
-        .insert({
-          quote_id: record.quoteId,
-          user_id: record.userId,
-          market_id: record.marketId,
-          direction: record.direction,
-          order_type: record.orderType,
-          limit_price: record.limitPrice ?? null,
-          shares: record.shares,
-          token: record.token,
-          amount: record.amount,
-          spender: record.spender,
-          deadline: record.deadline,
-          tx_chain_id: record.tx.chainId,
-          tx_from: record.tx.from,
-          tx_to: record.tx.to,
-          tx_data: record.tx.data,
-          tx_value: record.tx.value,
-          status: record.status,
-          tx_hash: null,
-        })
-        .select('*')
-        .single();
-
-    if (error) {
-      throw new Error(`Create quote failed: ${error.message}`);
-    }
+  /**
+   * 创建 x402 支付要求
+   */
+  createPaymentRequired(
+    betId: string,
+    amount: number,
+    network: 'base' | 'solana',
+    nonce: string,
+  ): PaymentRequired {
+    const validUntil = new Date(Date.now() + 5 * 60 * 1000); // 5分钟有效
 
     return {
-      quoteId,
-      token: record.token,
-      amount: record.amount,
-      spender: record.spender,
-      deadline: record.deadline,
-      tx: record.tx,
+      amount: amount.toFixed(6),
+      currency: 'USDC',
+      network: network,
+      networkId: network === 'base' ? 'eip155:8453' : 'solana:mainnet',
+      payTo: network === 'base' ? this.PLATFORM_WALLET_BASE : this.PLATFORM_WALLET_SOLANA,
+      validUntil: validUntil.toISOString(),
+      nonce,
+      resource: `/bets/${betId}`,
     };
   }
 
-  async confirmPayment(quoteId: string, txHash: string) {
-    const {
-      data,
-      error,
-    }: { data: PaymentQuoteRow | null; error: PostgrestError | null } =
-      await this.supabaseService
-        .getClient()
-        .from('payments_quotes')
-        .select('*')
-        .eq('quote_id', quoteId)
-        .maybeSingle();
-
-    if (error) {
-      throw new Error(`Load quote failed: ${error.message}`);
-    }
-
-    if (!data) {
-      throw new Error('Quote not found');
-    }
-
-    const quote = this.mapRowToQuote(data);
-    if (quote.status === 'paid') {
-      if (quote.txHash !== txHash) {
-        throw new Error('Quote already paid with a different txHash');
+  /**
+   * 验证 x402 支付签名
+   *
+   * 注意：这是一个简化实现
+   * 生产环境应该调用 Coinbase Facilitator API 进行验证
+   */
+  async verifyPayment(
+    paymentSignature: string,
+    nonce: string,
+    amount: number,
+    network: 'base' | 'solana',
+  ): Promise<VerificationResult> {
+    try {
+      // 验证签名格式
+      if (!paymentSignature || paymentSignature.length < 10) {
+        return { isValid: false, error: '无效的支付签名' };
       }
-      return this.buildPaidResponse(quote);
+
+      // TODO: 在生产环境中，应该调用 Facilitator API 验证
+      // const response = await this.callFacilitator(paymentSignature, nonce, amount, network);
+
+      // 目前使用模拟验证逻辑
+      // 在真实实现中，这里应该：
+      // 1. 调用 Coinbase Facilitator /verify 端点
+      // 2. 验证签名的有效性
+      // 3. 确认支付已经上链
+
+      const isValid = this.simulateVerification(paymentSignature, nonce);
+
+      if (isValid) {
+        // 生成模拟的交易哈希
+        const txHash = this.generateMockTxHash(network);
+        return { isValid: true, txHash };
+      }
+
+      return { isValid: false, error: '支付验证失败' };
+    } catch (error) {
+      console.error('[Payments] 验证支付失败:', error);
+      return {
+        isValid: false,
+        error: error instanceof Error ? error.message : '验证错误',
+      };
     }
-
-    if (this.isExpired(quote)) {
-      await this.supabaseService
-        .getClient()
-        .from('payments_quotes')
-        .update({ status: 'expired' })
-        .eq('quote_id', quoteId);
-      throw new Error('Quote expired');
-    }
-
-    if (!this.isTxHashValid(txHash)) {
-      throw new Error('Invalid txHash format');
-    }
-
-    const { data: existing }: { data: PaymentQuoteRow[] | null } =
-      await this.supabaseService
-        .getClient()
-        .from('payments_quotes')
-        .select('quote_id')
-        .eq('tx_hash', txHash);
-
-    if ((existing ?? []).some((row) => row.quote_id !== quoteId)) {
-      throw new Error('txHash already used for another quote');
-    }
-
-    const {
-      data: updated,
-      error: updateError,
-    }: { data: PaymentQuoteRow | null; error: PostgrestError | null } =
-      await this.supabaseService
-        .getClient()
-        .from('payments_quotes')
-        .update({ status: 'paid', tx_hash: txHash })
-        .eq('quote_id', quoteId)
-        .select('*')
-        .single();
-
-    if (updateError) {
-      throw new Error(`Confirm payment failed: ${updateError.message}`);
-    }
-
-    return this.buildPaidResponse(this.mapRowToQuote(updated as PaymentQuoteRow));
   }
 
-  async assertPaid(txHash: string): Promise<PaidPayment> {
-    const {
-      data,
-      error,
-    }: { data: PaymentQuoteRow | null; error: PostgrestError | null } =
-      await this.supabaseService
-        .getClient()
-        .from('payments_quotes')
-        .select('*')
-        .eq('tx_hash', txHash)
-        .eq('status', 'paid')
-        .maybeSingle();
-
-    if (error) {
-      throw new Error(`Lookup payment failed: ${error.message}`);
+  async assertPaid(txHash: string): Promise<{ token: string }> {
+    if (!txHash || txHash.length < 10) {
+      throw new Error('Invalid payment txHash');
     }
-
-    if (!data) {
-      throw new Error('Payment not confirmed');
-    }
-
-    return this.buildPaidResponse(this.mapRowToQuote(data));
+    return { token: 'USDC' };
   }
 
-  private buildPaidResponse(quote: QuoteRecord): PaidPayment {
-    if (!quote.txHash) {
-      throw new Error('Missing txHash');
+  /**
+   * 调用 Facilitator API (生产环境使用)
+   */
+  private async callFacilitator(
+    paymentSignature: string,
+    nonce: string,
+    amount: number,
+    network: string,
+  ): Promise<VerificationResult> {
+    const payTo = network === 'base' ? this.PLATFORM_WALLET_BASE : this.PLATFORM_WALLET_SOLANA;
+
+    const response = await fetch(`${this.FACILITATOR_URL}/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        paymentSignature,
+        paymentRequired: {
+          amount: amount.toFixed(6),
+          currency: 'USDC',
+          networkId: network === 'base' ? 'eip155:8453' : 'solana:mainnet',
+          payTo,
+          nonce,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Facilitator 验证失败: ${response.status}`);
     }
+
+    const data = await response.json();
     return {
-      quoteId: quote.quoteId,
-      token: quote.token,
-      amount: quote.amount,
-      spender: quote.spender,
-      deadline: quote.deadline,
-      txHash: quote.txHash,
+      isValid: data.verified === true,
+      txHash: data.transactionHash,
     };
   }
 
-  private isExpired(quote: QuoteRecord) {
-    return Date.now() > new Date(quote.deadline).getTime();
+  /**
+   * 模拟验证 (开发/演示用)
+   */
+  private simulateVerification(signature: string, nonce: string): boolean {
+    // 简单验证：签名必须存在且 nonce 必须有效
+    // 在真实实现中，这里应该验证加密签名
+    return signature.length > 10 && nonce.length > 0;
   }
 
-  private isTxHashValid(txHash: string) {
-    return /^0x[a-fA-F0-9]{64}$/.test(txHash);
-  }
+  /**
+   * 生成模拟交易哈希 (开发用)
+   */
+  private generateMockTxHash(network: string): string {
+    const randomHex = Array.from({ length: 64 }, () =>
+      Math.floor(Math.random() * 16).toString(16),
+    ).join('');
 
-  private calculateAmount(input: QuoteRequest) {
-    const defaultPrice = Number(this.config.get('X402_DEFAULT_PRICE') ?? 0.52);
-    const price = input.limitPrice ?? defaultPrice;
-    return Math.max(0, Number((price * input.shares).toFixed(6)));
+    if (network === 'base') {
+      return `0x${randomHex}`;
+    } else {
+      // Solana 签名格式
+      return randomHex.substring(0, 88);
+    }
   }
 }

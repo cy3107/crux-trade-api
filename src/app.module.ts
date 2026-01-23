@@ -12,8 +12,9 @@ import { InsightsController } from './insights/insights.controller';
 import { SettlementsController } from './settlements/settlements.controller';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
-import { PaymentsController } from './payments/payments.controller';
-import { PaymentsService } from './payments/payments.service';
+import { WalletModule } from './wallet/wallet.module';
+import { BetsModule } from './bets/bets.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -24,15 +25,17 @@ import { PaymentsService } from './payments/payments.service';
     TicketsModule,
     StrategiesModule,
     AiAgentModule,
+    WalletModule,
+    BetsModule,
+    PaymentsModule,
   ],
-  providers: [SupabaseService, OrdersService, PaymentsService],
+  providers: [SupabaseService, OrdersService],
   exports: [SupabaseService],
   controllers: [
     ArenaController,
     InsightsController,
     SettlementsController,
     OrdersController,
-    PaymentsController,
   ],
 })
 export class AppModule {}
